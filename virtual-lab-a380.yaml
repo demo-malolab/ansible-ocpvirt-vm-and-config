@@ -4,7 +4,7 @@
   connection: local
   gather_facts: false
   vars:
-    - vm_name: {{ vlab_name | default('change-me')}}
+    vm_name: "{{ vlab_name | default('change-me') }}"
   tasks:
 
     - name: Apply VirtualMachine manifest
