@@ -197,9 +197,9 @@
     - name: Copy image to web root
       ansible.builtin.copy:
         src:   "files/{{ aircraft_type }}.png"
-        dest:  files/var/www/html/simulation.png
+        dest:  /var/www/html/simulation.png
         mode:  "0644"
- 
+
     - name: Create index.html
       ansible.builtin.copy:
         dest:  /var/www/html/index.html
