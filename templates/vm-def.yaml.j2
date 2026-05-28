@@ -1,0 +1,99 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  annotations:
+    kubevirt.io/latest-observed-api-version: v1
+    kubevirt.io/storage-observed-api-version: v1
+  name: {{ vm_name }}
+  namespace: virtual-labs
+  finalizers:
+    - kubevirt.io/virtualMachineControllerFinalize
+  labels:
+    app: {{ vm_name }}
+    kubevirt.io/dynamic-credentials-support: 'true'
+    vm.kubevirt.io/template: rhel9-server-small
+    vm.kubevirt.io/template.namespace: openshift
+    vm.kubevirt.io/template.revision: '1'
+    vm.kubevirt.io/template.version: v0.34.1
+spec:
+  dataVolumeTemplates:
+    - apiVersion: cdi.kubevirt.io/v1beta1
+      kind: DataVolume
+      metadata:
+        creationTimestamp: null
+        name: {{ vm_name }}
+      spec:
+        source:
+          pvc:
+            name: rhel9-local-amd64
+            namespace: virtual-labs
+        storage:
+          resources:
+            requests:
+              storage: '32212254720'
+  runStrategy: RerunOnFailure
+  template:
+    metadata:
+      annotations:
+        kubevirt.io/pci-topology-version: v3
+        vm.kubevirt.io/flavor: small
+        vm.kubevirt.io/os: rhel9
+        vm.kubevirt.io/workload: server
+      creationTimestamp: null
+      labels:
+        kubevirt.io/domain: {{ vm_name }}
+        app: {{ vm_name }}
+        kubevirt.io/size: small
+        network.kubevirt.io/headlessService: headless
+    spec:
+      architecture: amd64
+      domain:
+        cpu:
+          cores: 1
+          sockets: 1
+          threads: 1
+        devices:
+          disks:
+            - disk:
+                bus: virtio
+              name: rootdisk
+            - disk:
+                bus: virtio
+              name: cloudinitdisk
+          interfaces:
+            - masquerade: {}
+              model: virtio
+              name: default
+          rng: {}
+        features:
+          acpi: {}
+          smm:
+            enabled: true
+        firmware:
+          bootloader:
+            efi: {}
+          serial: 214ab53e-6363-419d-90f6-f43f3af58062
+          uuid: e0eb0b48-55b8-4191-85af-13bc0d43f582
+        machine:
+          type: pc-q35-rhel9.6.0
+        memory:
+          guest: 2Gi
+        resources: {}
+      networks:
+        - name: default
+          pod: {}
+      subdomain: headless
+      terminationGracePeriodSeconds: 180
+      volumes:
+        - dataVolume:
+            name: {{ vm_name }}
+          name: rootdisk
+        - cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              user: {{ vm_username }}
+              password: {{ vm_password }}
+              ssh_pwauth: true
+              chpasswd: { expire: False }
+          name: cloudinitdisk
+

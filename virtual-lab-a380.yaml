@@ -1,0 +1,214 @@
+---
+- name: Create a380 virtual machine and expose SSH and HTTPS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+ 
+  tasks:
+
+    - name: Apply VirtualMachine manifest
+      kubernetes.core.k8s:
+        host:           "{{ ocp_api_url }}"
+        api_key:        "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state:          present
+        definition:     "{{ lookup('template', 'vm-def.yaml.j2') | from_yaml }}"
+
+    - name: Wait for VirtualMachineInstance to be Running
+      kubernetes.core.k8s_info:
+        host:           "{{ ocp_api_url }}"
+        api_key:        "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        api_version:    kubevirt.io/v1
+        kind:           VirtualMachineInstance
+        name:           "{{ vm_name }}"
+        namespace:      virtual-labs
+      register: vmi_info
+      retries: 120
+      delay: 10
+      until: >-
+        (vmi_info.resources | default([])) | length > 0 and
+        vmi_info.resources[0].status.phase | default('') == 'Running'
+
+    - name: Set VM IP fact
+      ansible.builtin.set_fact:
+        vm_ip: "{{ vmi_info.resources[0].status.interfaces[0].ipAddress }}"
+
+    - name: Show VM IP
+      ansible.builtin.debug:
+        msg: "{{ vm_name }} is Running at {{ vm_ip }}"
+
+    - name: Create LoadBalancer Service for SSH
+      kubernetes.core.k8s:
+        host:           "{{ ocp_api_url }}"
+        api_key:        "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state:          present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name:      "{{ vm_name }}-ssh"
+            namespace: virtual-labs
+            annotations:
+              service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+          spec:
+            selector:
+              app: "{{ vm_name }}"
+            type: LoadBalancer
+            ports:
+              - name:       ssh
+                port:       22000
+                targetPort: 22
+                protocol:   TCP
+
+    - name: Wait for SSH LoadBalancer hostname
+      kubernetes.core.k8s_info:
+        host:           "{{ ocp_api_url }}"
+        api_key:        "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        api_version:    v1
+        kind:           Service
+        name:           "{{ vm_name }}-ssh"
+        namespace:      virtual-labs
+      register: svc_ssh
+      retries: 30
+      delay: 10
+      until: >-
+        (svc_ssh.resources[0].status.loadBalancer.ingress | default([])) | length > 0
+
+    - name: Set SSH LoadBalancer hostname fact
+      ansible.builtin.set_fact:
+        lb_ssh_host: "{{ svc_ssh.resources[0].status.loadBalancer.ingress[0].hostname
+                         | default(svc_ssh.resources[0].status.loadBalancer.ingress[0].ip) }}"
+
+    - name: Wait for SSH LB to be reachable
+      ansible.builtin.wait_for:
+        host:    "{{ lb_ssh_host }}"
+        port:    22000
+        timeout: 600
+        delay:   30
+        state:   started
+
+    - name: Show SSH endpoint
+      ansible.builtin.debug:
+        msg: "SSH : ssh -p 22000 cloud-user@{{ lb_ssh_host }}"
+
+    - name: Create ClusterIP Service for HTTP
+      kubernetes.core.k8s:
+        host:           "{{ ocp_api_url }}"
+        api_key:        "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state:          present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name:      "{{ vm_name }}-web"
+            namespace: virtual-labs
+          spec:
+            selector:
+              app: "{{ vm_name }}"
+            type: ClusterIP
+            ports:
+              - name:       http
+                port:       80
+                targetPort: 80
+                protocol:   TCP
+ 
+    - name: Create Route for HTTP
+      kubernetes.core.k8s:
+        host:           "{{ ocp_api_url }}"
+        api_key:        "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state:          present
+        definition:
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name:      "{{ vm_name }}-web"
+            namespace: virtual-labs
+          spec:
+            to:
+              kind:   Service
+              name:   "{{ vm_name }}-web"
+            port:
+              targetPort: http
+            tls: 
+              termination: edge
+              insecureEdgeTerminationPolicy: Redirect
+            wildcardPolicy: None
+
+    - name: Wait for Route to get a hostname
+      kubernetes.core.k8s_info:
+        host:           "{{ ocp_api_url }}"
+        api_key:        "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        api_version:    route.openshift.io/v1
+        kind:           Route
+        name:           "{{ vm_name }}-web"
+        namespace:      virtual-labs
+      register: route_info
+      retries: 10
+      delay: 5
+      until: >-
+        (route_info.resources | default([])) | length > 0 and
+        route_info.resources[0].status.ingress | default([]) | length > 0
+
+    - name: Set Route hostname fact
+      ansible.builtin.set_fact:
+        route_host: "{{ route_info.resources[0].status.ingress[0].host }}"
+ 
+    - name: Show Route endpoint
+      ansible.builtin.debug:
+        msg: "HTTP : http://{{ route_host }}"
+
+    - name: Add VM to inventory using LoadBalancer SSH endpoint
+      ansible.builtin.add_host:
+        name:                    "{{ vm_name }}"
+        groups:                  new_vm
+        ansible_host:            "{{ lb_ssh_host }}"
+        ansible_port:            22000
+        ansible_user:            "{{ vm_username }}"
+        ansible_password:        "{{ vm_password }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+ 
+- name: Configure the virtual machine to serve A380 simulation
+  hosts: new_vm
+  become: true
+  gather_facts: false
+ 
+  tasks:
+
+    - name: Register with Red Hat Subscription Manager
+      community.general.redhat_subscription:
+        state:           present
+        activationkey:   "{{ actkey_key }}"
+        org_id:          "{{ actkey_orgid }}"
+
+    - name: Install httpd
+      ansible.builtin.package:
+        name:  httpd
+        state: present
+ 
+    - name: Copy image to web root
+      ansible.builtin.copy:
+        src:   files/a380.png
+        dest:  /var/www/html/a380.png
+        mode:  "0644"
+ 
+    - name: Create index.html
+      ansible.builtin.copy:
+        dest:  /var/www/html/index.html
+        mode:  "0644"
+        content: |
+          <!DOCTYPE html>
+          <html><body>
+          <img src="a380.png" alt="A380" style="max-width:100%">
+          </body></html>
+ 
+    - name: Start and enable httpd
+      ansible.builtin.service:
+        name:    httpd
+        state:   started
+        enabled: true
