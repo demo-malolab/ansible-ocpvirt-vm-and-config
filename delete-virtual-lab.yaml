@@ -1,0 +1,56 @@
+---
+- name: stop virtual machine
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vm_name: "{{ vlab_name | default('change-me') }}"
+  tasks:
+
+    - name: Ensure the VM is deleted
+      ignore_errors: yes
+      kubernetes.core.k8s:
+        host: "{{ ocp_api_url }}"
+        api_key: "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state: absent
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm_name }}"
+        namespace: virtual-labs
+
+    - name: Delete OpenShift Service
+      ignore_errors: yes
+      kubernetes.core.k8s:
+        host: "{{ ocp_api_url }}"
+        api_key: "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state: absent
+        api_version: v1
+        kind: Service
+        name: "{{ vm_name }}-ssh"
+        namespace: virtual-labs
+
+    - name: Delete OpenShift Service
+      ignore_errors: yes
+      kubernetes.core.k8s:
+        host: "{{ ocp_api_url }}"
+        api_key: "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state: absent
+        api_version: v1
+        kind: Service
+        name: "{{ vm_name }}-web"
+        namespace: virtual-labs
+
+    - name: Delete OpenShift Route
+      ignore_errors: yes
+      kubernetes.core.k8s:
+        host: "{{ ocp_api_url }}"
+        api_key: "{{ ocp_token }}"
+        validate_certs: "{{ ocp_validate_certs | default(false) }}"
+        state: absent
+        api_version: route.openshift.io/v1
+        kind: Route
+        name: "{{ vm_name }}-web"
+        namespace: virtual-labs

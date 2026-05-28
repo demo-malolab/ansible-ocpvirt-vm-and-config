@@ -1,5 +1,5 @@
 ---
-- name: Create a380 virtual machine and expose SSH and HTTPS
+- name: Create a OCP-Virt virtual machine and expose SSH and HTTPS
   hosts: localhost
   connection: local
   gather_facts: false
@@ -179,7 +179,8 @@
   hosts: new_vm
   become: true
   gather_facts: false
- 
+  vars:
+    aircraft_type: "{{ vlab_type }}"
   tasks:
 
     - name: Register with Red Hat Subscription Manager
