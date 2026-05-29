@@ -4,8 +4,8 @@
   connection: local
   gather_facts: false
   vars:
-    vm_name: "{{ vlab_name |  lower | default('change-me') }}"
-    aircraft_type: "{{ vlab_type | lower }}"
+    vm_name: "{{ vlab_name | lower | regex_replace('[^a-z0-9]', '-') | default('change-me') }}"
+    aircraft_type: "{{ vlab_type | lower | regex_replace('[^a-z0-9]', '-') }}"
   tasks:
 
     - name: Apply VirtualMachine manifest
@@ -180,7 +180,7 @@
   become: true
   gather_facts: false
   vars:
-    aircraft_type: "{{ vlab_type | lower }}"
+    aircraft_type: "{{ vlab_type | lower | regex_replace('[^a-z0-9]', '-') }}"
   tasks:
 
     - name: Register with Red Hat Subscription Manager
