@@ -4,7 +4,7 @@
   connection: local
   gather_facts: false
   vars:
-    vm_name: "{{ vlab_name | default('change-me') }}"
+    vm_name: "{{ vlab_name | lower | regex_replace('[^a-z0-9]', '-') | default('change-me') }}"
   tasks:
 
     - name: Ensure the VM is stopped VirtualMachine manifest
